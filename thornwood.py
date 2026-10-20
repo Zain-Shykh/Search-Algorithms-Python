@@ -246,7 +246,7 @@ def tomos_check():
         
 
 
-# Stone Drop start position, START_BOARD[row][col], row 0 is the bottom row
+# Stone Drop start position, START_BOARD[row][col], list index 4 is the bottom row, index 0 is the top row
 START_BOARD = [
     list("....."),
     list(".O.X."),
@@ -256,7 +256,7 @@ START_BOARD = [
 ]
 
 def is_finished(board):
-    """Return (True, utility) if the game is over, else (False, None). Uses winner() from above."""
+    """Return True if someone has four in a line or the board is full, else False."""
     empty = sum(row.count(".") for row in board)
     w = winner(board)
     if w == "X":
@@ -325,6 +325,7 @@ nodes = 0
 leaves = 0
 
 def minimax(board):
+    """Part A: full minimax to the end of the game, column order 0 to 4. Counts nodes and leaves in globals; returns the value."""
     global nodes, leaves
     nodes += 1
     if is_finished(board):
@@ -347,6 +348,7 @@ def minimax(board):
 
 
 def best_move(board):
+    """Part A root (X to move): first column with a strictly better minimax value. Returns (value, column, nodes, leaves)."""
     global nodes, leaves
     nodes = 0
     leaves = 0
@@ -361,6 +363,62 @@ def best_move(board):
                 best_value = value
                 best_col = i
     return best_value, best_col, nodes, leaves
+
+
+def evaluate_board(board):
+    """Sum over all 28 windows: +k^2 for k>=1 X and no O, -k^2 for k>=1 O and no X, else 0."""
+    total = 0
+    for r in range(5):
+        for c in range(5):
+            for dr, dc in [(0, 1), (1, 0), (1, 1), (1, -1)]:
+                end_r, end_c = r + 3 * dr, c + 3 * dc
+                if 0 <= end_r < 5 and 0 <= end_c < 5:
+                    cells = [board[r + k * dr][c + k * dc] for k in range(4)]
+                    x = cells.count('X')
+                    o = cells.count('O')
+                    if x >= 1 and o == 0:
+                        total += x * x
+                    elif o >= 1 and x == 0:
+                        total -= o * o
+    return total
+
+
+dl_nodes = 0
+
+def depth_limited_minimax(board, depth):
+    """Minimax cut off at depth 0, where unfinished positions return evaluate_board; finished games return utility * 1000."""
+    global dl_nodes
+    dl_nodes += 1
+    if is_finished(board):
+        return utility(winner(board), board) * 1000
+    if depth == 0:
+        return evaluate_board(board)
+    if turn(board):
+        value = float('-inf')
+        for i in range(5):
+            if board[0][i] == '.':
+                value = max(value, depth_limited_minimax(play_move(board, i), depth - 1))
+    else:
+        value = float('inf')
+        for i in range(5):
+            if board[0][i] == '.':
+                value = min(value, depth_limited_minimax(play_move(board, i), depth - 1))
+    return value
+
+
+def best_move_depth_limited(board, depth=4):
+    """Root of the depth-limited search (root is X's turn). Returns (value, column, nodes)."""
+    global dl_nodes
+    dl_nodes = 1
+    best_value = float('-inf')
+    best_col = None
+    for i in range(5):
+        if board[0][i] == '.':
+            value = depth_limited_minimax(play_move(board, i), depth - 1)
+            if value > best_value:
+                best_value = value
+                best_col = i
+    return best_value, best_col, dl_nodes
 
     
 

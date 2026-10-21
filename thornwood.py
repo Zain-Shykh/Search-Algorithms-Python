@@ -420,6 +420,207 @@ def best_move_depth_limited(board, depth=4):
                 best_col = i
     return best_value, best_col, dl_nodes
 
+
+ab_nodes = 0
+ab_move = None
+
+def alpha_beta(board, alpha, beta, order, depth=None, root=False):
+    """Fail-soft alpha-beta, with an optional depth limit. Count every call, including the root."""
+    global ab_nodes, ab_move
+    ab_nodes += 1
+    if is_finished(board):
+        if depth is None:
+            return utility(winner(board), board)
+        return utility(winner(board), board) * 1000
+    if depth == 0:
+        return evaluate_board(board)
+
+    next_depth = None if depth is None else depth - 1
+    if turn(board):
+        value = float('-inf')
+        for i in order:
+            if board[0][i] == '.':
+                child_value = alpha_beta(play_move(board, i), alpha, beta, order, next_depth)
+                if child_value > value:
+                    value = child_value
+                    if root:
+                        ab_move = i
+                if value >= beta:
+                    return value
+                alpha = max(alpha, value)
+    else:
+        value = float('inf')
+        for i in order:
+            if board[0][i] == '.':
+                child_value = alpha_beta(play_move(board, i), alpha, beta, order, next_depth)
+                if child_value < value:
+                    value = child_value
+                    if root:
+                        ab_move = i
+                if value <= alpha:
+                    return value
+                beta = min(beta, value)
+    return value
+
+
+def best_move_alpha_beta(board, order, depth=None):
+    """Run alpha-beta from a fresh root. Returns (value, column, nodes)."""
+    global ab_nodes, ab_move
+    ab_nodes = 0
+    ab_move = None
+    value = alpha_beta(board, float('-inf'), float('inf'), order, depth, True)
+    return value, ab_move, ab_nodes
+
+
+# Each list gives a node's children from left to right.
+TRIAL_TREE = {
+    'R': ['A', 'B', 'C'],
+    'A': ['A1', 'A2', 'A3'],
+    'A1': ['A1a', 'A1b', 'A1c', 'A1d'],
+    'A1a': ['L1', 'L2', 'L3'],
+    'A1b': ['L4', 'L5', 'L6'],
+    'A1c': ['L7', 'L8', 'L9'],
+    'A1d': ['L10', 'L11', 'L12'],
+    'A2': ['A2a', 'A2b', 'A2c'],
+    'A2a': ['L13', 'L14', 'L15'],
+    'A2b': ['L16', 'L17'],
+    'A2c': ['L18', 'L19'],
+    'A3': ['A3a', 'A3b', 'A3c', 'A3d'],
+    'A3a': ['L20', 'L21', 'L22'],
+    'A3b': ['L23', 'L24'],
+    'A3c': ['L25', 'L26', 'L27'],
+    'A3d': ['L28', 'L29'],
+    'B': ['B1', 'B2'],
+    'B1': ['B1a', 'B1b', 'B1c', 'B1d'],
+    'B1a': ['L30', 'L31', 'L32'],
+    'B1b': ['L33', 'L34', 'L35'],
+    'B1c': ['L36', 'L37', 'L38'],
+    'B1d': ['L39', 'L40'],
+    'B2': ['B2a', 'B2b', 'B2c'],
+    'B2a': ['L41', 'L42'],
+    'B2b': ['L43', 'L44', 'L45'],
+    'B2c': ['L46', 'L47', 'L48'],
+    'C': ['C1', 'C2'],
+    'C1': ['C1a', 'C1b', 'C1c'],
+    'C1a': ['L49', 'L50', 'L51'],
+    'C1b': ['L52', 'L53'],
+    'C1c': ['L54', 'L55'],
+    'C2': ['C2a', 'C2b'],
+    'C2a': ['L56', 'L57', 'L58'],
+    'C2b': ['L59', 'L60'],
+}
+
+TRIAL_VALUES = [
+    4, -27, -22, -28, 16, 13, 2, -20, 10, -15, 17, -4,
+    24, -29, 12, -21, -22, 8, 0, -15, 22, 7, -29, 17,
+    24, 4, 4, 2, -28, 12, 5, -10, 24, 12, -3, 24,
+    14, -18, 26, 30, 30, 9, 25, -3, 8, -21, -27, -24,
+    5, 15, 19, -27, -4, -7, 8, -10, -24, -4, 30, -4,
+]
+
+tree_leaves = []
+tree_move = None
+tree_b2_window = None
+
+def tree_alpha_beta(node, alpha, beta, maximizing, right_to_left=False):
+    """Search Master Hyo's tree, recording evaluated leaves and B2's incoming window."""
+    global tree_move, tree_b2_window
+    if node not in TRIAL_TREE:
+        tree_leaves.append(node)
+        return TRIAL_VALUES[int(node[1:]) - 1]
+    if node == 'B2':
+        tree_b2_window = (alpha, beta)
+
+    children = TRIAL_TREE[node]
+    if right_to_left:
+        children = children[::-1]
+    if maximizing:
+        value = float('-inf')
+        for child in children:
+            child_value = tree_alpha_beta(child, alpha, beta, False, right_to_left)
+            if child_value > value:
+                value = child_value
+                if node == 'R':
+                    tree_move = child
+            if value >= beta:
+                return value
+            alpha = max(alpha, value)
+    else:
+        value = float('inf')
+        for child in children:
+            value = min(value, tree_alpha_beta(child, alpha, beta, True, right_to_left))
+            if value <= alpha:
+                return value
+            beta = min(beta, value)
+    return value
+
+
+def trial_tree(right_to_left=False):
+    """Returns (root value, best move, evaluated leaves, B2 window) for a fresh tree search."""
+    global tree_leaves, tree_move, tree_b2_window
+    tree_leaves = []
+    tree_move = None
+    tree_b2_window = None
+    value = tree_alpha_beta('R', float('-inf'), float('inf'), True, right_to_left)
+    return value, tree_move, tree_leaves[:], tree_b2_window
+
+
+def owl_cipher():
+    """Compute all mission results and print the 36 lines required by Scroll Box 5."""
+    steps, final_pos, value = steepest_ascent_hill_climbing((0,0))
+    rr_value, best_start, total_steps = random_restart()
+    sa_pos, sa_value, sa_best, accepted = simulated_annealing((0,0))
+    gen_best, chromosome, fitness, first_gen, average = GA()
+    opt_fitness, opt_chromosome = tomos_check()
+    mm_value, mm_move, mm_nodes, mm_leaves = best_move(START_BOARD)
+    dl_value, dl_move, dl_count = best_move_depth_limited(START_BOARD)
+    ab1 = best_move_alpha_beta(START_BOARD, [0,1,2,3,4])
+    ab2 = best_move_alpha_beta(START_BOARD, [2,1,3,0,4])
+    ab3 = best_move_alpha_beta(START_BOARD, [0,1,2,3,4], 4)
+    tree_value, best_tree_move, lr_leaves, b2_window = trial_tree()
+    rl_value, rl_move, rl_leaves, rl_window = trial_tree(True)
+
+    print('=== OWL CIPHER ===')
+    print(f'HC_FINAL: ({final_pos[0]},{final_pos[1]})')
+    print(f'HC_VALUE: {value}')
+    print(f'HC_STEPS: {steps}')
+    print(f'RR_BEST_VALUE: {rr_value}')
+    print(f'RR_BEST_START: ({best_start[0]},{best_start[1]})')
+    print(f'RR_TOTAL_STEPS: {total_steps}')
+    print(f'SA_FINAL: ({sa_pos[0]},{sa_pos[1]})')
+    print(f'SA_FINAL_VALUE: {sa_value}')
+    print(f'SA_BEST_VALUE: {sa_best}')
+    print(f'SA_ACCEPTED: {accepted}')
+    print(f'SA_SUCCESS_1_TO_20: {fate_test()}')
+    print('GA_GEN_BEST: ' + ','.join(map(str, gen_best)))
+    print(f'GA_BEST_CHROMOSOME: {chromosome}')
+    print(f'GA_BEST_FITNESS: {fitness}')
+    print(f'GA_FIRST_GEN: {first_gen}')
+    print(f'GA_FINAL_AVG: {average:.2f}')
+    print(f'OPT_FITNESS: {opt_fitness}')
+    print(f'OPT_CHROMOSOME: {opt_chromosome}')
+    print(f'MM_VALUE: {mm_value}')
+    print(f'MM_MOVE: {mm_move}')
+    print(f'MM_NODES: {mm_nodes}')
+    print(f'MM_LEAVES: {mm_leaves}')
+    print(f'DL_VALUE: {dl_value}')
+    print(f'DL_MOVE: {dl_move}')
+    print(f'DL_NODES: {dl_count}')
+    print('AB1: ' + ','.join(map(str, ab1)))
+    print('AB2: ' + ','.join(map(str, ab2)))
+    print('AB3: ' + ','.join(map(str, ab3)))
+    print(f'TREE_VALUE: {tree_value}')
+    print(f'TREE_MOVE: {best_tree_move}')
+    print(f'TREE_LR_LEAVES: {len(lr_leaves)}')
+    print('TREE_LR_LIST: ' + ','.join(lr_leaves))
+    print(f'TREE_B2_WINDOW: ({b2_window[0]},{b2_window[1]})')
+    print(f'TREE_RL_LEAVES: {len(rl_leaves)}')
+    print('MISSION_STATUS: ' + ('SUCCESS' if mm_value > 0 else 'FAILED'))
+
+
+if __name__ == '__main__':
+    owl_cipher()
+
     
 
 
